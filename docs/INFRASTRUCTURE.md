@@ -17,15 +17,15 @@ Provision a lightweight EC2 instance to run `openclaw` as a background worker.
 |----------|--------|
 | Application type | Worker (long-running daemon) |
 | Language / framework | Node 24 |
-| Source repo | n/a — installed via `npm install -g openclaw@latest` |
-| How is the app installed? | Manual SSH via SSM, then `npm install -g openclaw@latest` |
+| Source repo | n/a — installed via `sudo npm install -g openclaw@latest` |
+| How is the app installed? | Manual SSH via SSM, then `sudo npm install -g openclaw@latest` |
 | Ports the app listens on | Web UI on a local port (accessed via SSM port forwarding, not exposed publicly) |
 
 ## Compute
 
 | Question | Answer |
 |----------|--------|
-| Instance type | t4g.nano (ARM/Graviton) |
+| Instance type | t4g.small (ARM/Graviton) |
 | AMI / OS | Ubuntu 24.04 LTS (arm64) |
 | Root volume size (GB) | Default (8 GB) |
 | Additional EBS volumes? | Yes — 1 GB gp3 for ~/.openclaw config (persists across instance recreation) |
@@ -50,9 +50,9 @@ Provision a lightweight EC2 instance to run `openclaw` as a background worker.
 | Question | Answer |
 |----------|--------|
 | Instance provisioning | User data script installs Node 24, mounts persistent EBS volume to ~/.openclaw |
-| App installation | Manual — operator SSMs in and runs `npm install -g openclaw@latest` |
+| App installation | Manual — operator SSMs in and runs `sudo npm install -g openclaw@latest` |
 | App configuration | Manual — operator configures openclaw after install |
-| Updates | Manual — `npm install -g openclaw@latest` again |
+| Updates | Manual — `sudo npm install -g openclaw@latest` again |
 
 ## Operations
 
@@ -72,13 +72,13 @@ Provision a lightweight EC2 instance to run `openclaw` as a background worker.
 
 ## Cost Estimate
 
-- t4g.nano on-demand: ~$3.07/mo
+- t4g.small on-demand: ~$12.26/mo
 - Public IPv4 address: ~$3.65/mo
 - EBS root (8 GB gp3): ~$0.64/mo
 - EBS data (1 GB gp3): ~$0.08/mo
 - EBS snapshots (DLM, every 4h, 7-day retention): ~$0.05/mo (incremental, ~1 GB stored)
 - Data transfer: minimal
-- **Total: ~$7.50/mo**
+- **Total: ~$17/mo**
 
 ## CloudFormation Outputs
 
@@ -86,27 +86,3 @@ Provision a lightweight EC2 instance to run `openclaw` as a background worker.
 |--------|-------------|
 | InstanceId | EC2 instance ID (used for SSM commands) |
 
-## Operator Runbook
-
-### Connect via SSM
-
-```
-aws ssm start-session --target <InstanceId>
-```
-
-### Port forward the web UI
-
-```
-aws ssm start-session --target <InstanceId> \
-  --document-name AWS-StartPortForwardingSession \
-  --parameters '{"portNumber":["PORT"],"localPortNumber":["PORT"]}'
-```
-
-Then open `http://localhost:PORT` in your browser.
-
-### Install / update openclaw
-
-```
-aws ssm start-session --target <InstanceId>
-npm install -g openclaw@latest
-```

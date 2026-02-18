@@ -46,26 +46,35 @@ export class OpenclawCdkStack extends cdk.Stack {
       'curl -fsSL https://deb.nodesource.com/setup_24.x | bash -',
       'apt-get install -y nodejs',
 
-      // Wait for the EBS data volume to attach
-      'while [ ! -e /dev/xvdf ]; do echo "Waiting for EBS volume..."; sleep 2; done',
+      // Find the EBS data volume (Nitro instances use NVMe — /dev/xvdf maps to /dev/nvme*n1)
+      'DATA_DEV=""',
+      'for i in $(seq 1 30); do',
+      '  DATA_DEV=$(lsblk -dno NAME,SIZE | awk \'$2 == "1G" {print "/dev/"$1}\' | grep -v nvme0)',
+      '  [ -n "$DATA_DEV" ] && break',
+      '  echo "Waiting for EBS data volume... ($i)"',
+      '  sleep 2',
+      'done',
+      '[ -z "$DATA_DEV" ] && { echo "ERROR: Data volume not found"; exit 1; }',
+      'echo "Found data volume at $DATA_DEV"',
 
       // Format if new (check for existing filesystem)
-      'if ! blkid /dev/xvdf; then mkfs.ext4 /dev/xvdf; fi',
+      'if ! blkid "$DATA_DEV"; then mkfs.ext4 "$DATA_DEV"; fi',
 
       // Mount the data volume
       'mkdir -p /home/ubuntu/.openclaw',
-      'mount /dev/xvdf /home/ubuntu/.openclaw',
+      'mount "$DATA_DEV" /home/ubuntu/.openclaw',
       'chown ubuntu:ubuntu /home/ubuntu/.openclaw',
 
-      // Persist mount across reboots
-      'echo "/dev/xvdf /home/ubuntu/.openclaw ext4 defaults,nofail 0 2" >> /etc/fstab',
+      // Persist mount across reboots using UUID
+      'DATA_UUID=$(blkid -s UUID -o value "$DATA_DEV")',
+      'echo "UUID=$DATA_UUID /home/ubuntu/.openclaw ext4 defaults,nofail 0 2" >> /etc/fstab',
     );
 
     // --- EC2 Instance ---
     const instance = new ec2.Instance(this, 'Worker', {
       vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
-      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.NANO),
+      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.SMALL),
       machineImage: ec2.MachineImage.lookup({
         name: 'ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-arm64-server-*',
         owners: ['099720109477'], // Canonical
@@ -81,6 +90,7 @@ export class OpenclawCdkStack extends cdk.Stack {
       availabilityZone: instance.instanceAvailabilityZone,
       size: cdk.Size.gibibytes(1),
       volumeType: ec2.EbsDeviceVolumeType.GP3,
+      encrypted: true,
       removalPolicy: cdk.RemovalPolicy.RETAIN,
     });
 
