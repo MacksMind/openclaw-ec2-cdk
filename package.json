@@ -1,0 +1,28 @@
+{
+  "name": "openclaw-cdk",
+  "version": "0.1.0",
+  "bin": {
+    "openclaw-cdk": "bin/openclaw-cdk.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "test": "jest",
+    "cdk": "cdk",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@types/jest": "^30",
+    "@types/node": "^24.10.1",
+    "aws-cdk": "2.1106.0",
+    "husky": "^9.1.7",
+    "jest": "^30",
+    "ts-jest": "^29",
+    "ts-node": "^10.9.2",
+    "typescript": "~5.9.3"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.238.0",
+    "constructs": "^10.0.0"
+  }
+}
