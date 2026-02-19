@@ -2,6 +2,8 @@ import * as cdk from 'aws-cdk-lib/core';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as dlm from 'aws-cdk-lib/aws-dlm';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as apigw from 'aws-cdk-lib/aws-apigateway';
 import { Construct } from 'constructs';
 
 export class OpenclawCdkStack extends cdk.Stack {
@@ -135,10 +137,62 @@ export class OpenclawCdkStack extends cdk.Stack {
     // Tag the data volume for DLM
     cdk.Tags.of(dataVolume).add('openclaw:backup', 'true');
 
+    // --- Webhook Forwarder (API Gateway → Lambda → EC2 port 18789) ---
+    const lambdaSg = new ec2.SecurityGroup(this, 'LambdaSg', {
+      vpc,
+      description: 'OpenClaw webhook forwarder Lambda',
+    });
+
+    // Allow Lambda to reach the EC2 on port 18789 (nothing else inbound)
+    securityGroup.addIngressRule(
+      ec2.Peer.securityGroupId(lambdaSg.securityGroupId),
+      ec2.Port.tcp(18789),
+      'Webhook forwarder Lambda',
+    );
+
+    const forwarder = new lambda.Function(this, 'WebhookForwarder', {
+      vpc,
+      vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
+      allowPublicSubnet: true,
+      securityGroups: [lambdaSg],
+      runtime: lambda.Runtime.NODEJS_22_X,
+      handler: 'index.handler',
+      timeout: cdk.Duration.seconds(30),
+      environment: {
+        EC2_PRIVATE_IP: instance.instancePrivateIp,
+      },
+      code: lambda.Code.fromInline(`
+exports.handler = async (event) => {
+  const qs = event.queryStringParameters
+    ? '?' + new URLSearchParams(event.queryStringParameters).toString()
+    : '';
+  const res = await fetch(
+    \`http://\${process.env.EC2_PRIVATE_IP}:18789\${event.path}\${qs}\`,
+    {
+      method: event.httpMethod,
+      headers: { 'content-type': event.headers?.['content-type'] ?? 'application/json' },
+      body: ['GET', 'HEAD'].includes(event.httpMethod) ? undefined : (event.body ?? undefined),
+    }
+  );
+  return { statusCode: res.status, body: await res.text() };
+};
+      `),
+    });
+
+    const api = new apigw.LambdaRestApi(this, 'WebhookApi', {
+      handler: forwarder,
+      proxy: true,
+    });
+
     // --- CloudFormation Outputs ---
     new cdk.CfnOutput(this, 'InstanceId', {
       value: instance.instanceId,
       description: 'EC2 instance ID for SSM commands',
+    });
+
+    new cdk.CfnOutput(this, 'WebhookUrl', {
+      value: api.url,
+      description: 'API Gateway URL — append your webhook path (e.g. hooks/pubsub)',
     });
   }
 }
