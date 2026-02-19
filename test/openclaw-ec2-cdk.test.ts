@@ -1,6 +1,6 @@
 import * as cdk from 'aws-cdk-lib/core';
 import { Template, Match } from 'aws-cdk-lib/assertions';
-import { OpenclawCdkStack } from '../lib/openclaw-cdk-stack';
+import { OpenclawCdkStack } from '../lib/openclaw-ec2-cdk-stack';
 
 let template: Template;
 

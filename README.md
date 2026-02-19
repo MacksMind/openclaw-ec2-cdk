@@ -1,4 +1,4 @@
-# openclaw-cdk
+# openclaw-ec2-cdk
 
 CDK stack for deploying the OpenClaw worker to EC2.
 
@@ -42,10 +42,11 @@ aws ssm start-session --target <InstanceId> \
 
 Then open `http://localhost:PORT` in your browser.
 
-### Install / update openclaw
+### Update openclaw
+
+`openclaw@latest` is installed automatically on first boot. To update to a newer version:
 
 ```
 aws ssm start-session --target <InstanceId>
-sudo su - ubuntu
 sudo npm install -g openclaw@latest
 ```

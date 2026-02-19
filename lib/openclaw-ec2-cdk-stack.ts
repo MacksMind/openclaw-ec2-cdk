@@ -48,10 +48,13 @@ export class OpenclawCdkStack extends cdk.Stack {
       'curl -fsSL https://deb.nodesource.com/setup_24.x | bash -',
       'apt-get install -y nodejs',
 
+      // Install openclaw globally
+      'npm install -g openclaw@latest',
+
       // Find the EBS data volume (Nitro instances use NVMe — /dev/xvdf maps to /dev/nvme*n1)
       'DATA_DEV=""',
       'for i in $(seq 1 30); do',
-      '  DATA_DEV=$(lsblk -dno NAME,SIZE | awk \'$2 == "1G" {print "/dev/"$1}\' | grep -v nvme0)',
+      '  DATA_DEV=$(lsblk -dno NAME,SIZE | awk \'$2 == "2G" {print "/dev/"$1}\' | grep -v nvme0)',
       '  [ -n "$DATA_DEV" ] && break',
       '  echo "Waiting for EBS data volume... ($i)"',
       '  sleep 2',
@@ -62,14 +65,24 @@ export class OpenclawCdkStack extends cdk.Stack {
       // Format if new (check for existing filesystem)
       'if ! blkid "$DATA_DEV"; then mkfs.ext4 "$DATA_DEV"; fi',
 
-      // Mount the data volume
-      'mkdir -p /home/ubuntu/.openclaw',
-      'mount "$DATA_DEV" /home/ubuntu/.openclaw',
-      'chown ubuntu:ubuntu /home/ubuntu/.openclaw',
+      // Mount temporarily to seed the volume with the existing home dir contents
+      'mkdir -p /mnt/home-seed',
+      'mount "$DATA_DEV" /mnt/home-seed',
+
+      // Only seed on first use (guard with a marker file)
+      'if [ ! -f /mnt/home-seed/.volume-initialized ]; then',
+      '  cp -a /home/ubuntu/. /mnt/home-seed/',
+      '  touch /mnt/home-seed/.volume-initialized',
+      'fi',
+
+      'umount /mnt/home-seed',
+
+      // Now mount the volume at /home/ubuntu — its contents replace the tmpfs view
+      'mount "$DATA_DEV" /home/ubuntu',
 
       // Persist mount across reboots using UUID
       'DATA_UUID=$(blkid -s UUID -o value "$DATA_DEV")',
-      'echo "UUID=$DATA_UUID /home/ubuntu/.openclaw ext4 defaults,nofail 0 2" >> /etc/fstab',
+      'echo "UUID=$DATA_UUID /home/ubuntu ext4 defaults,nofail 0 2" >> /etc/fstab',
     );
 
     // --- EC2 Instance ---
@@ -85,12 +98,20 @@ export class OpenclawCdkStack extends cdk.Stack {
       role,
       userData,
       userDataCausesReplacement: false,
+      blockDevices: [
+        {
+          deviceName: '/dev/sda1',
+          volume: ec2.BlockDeviceVolume.ebs(20, {
+            volumeType: ec2.EbsDeviceVolumeType.GP3,
+          }),
+        },
+      ],
     });
 
     // --- Persistent EBS Volume (same AZ as instance) ---
     const dataVolume = new ec2.Volume(this, 'DataVolume', {
       availabilityZone: instance.instanceAvailabilityZone,
-      size: cdk.Size.gibibytes(1),
+      size: cdk.Size.gibibytes(2),
       volumeType: ec2.EbsDeviceVolumeType.GP3,
       encrypted: true,
       removalPolicy: cdk.RemovalPolicy.RETAIN,

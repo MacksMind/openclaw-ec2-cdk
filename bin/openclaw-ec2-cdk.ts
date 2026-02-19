@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import * as cdk from 'aws-cdk-lib/core';
-import { OpenclawCdkStack } from '../lib/openclaw-cdk-stack';
+import { OpenclawCdkStack } from '../lib/openclaw-ec2-cdk-stack';
 
 const app = new cdk.App();
 new OpenclawCdkStack(app, 'OpenClawStack', {

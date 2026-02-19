@@ -1,8 +1,8 @@
 {
-  "name": "openclaw-cdk",
+  "name": "openclaw-ec2-cdk",
   "version": "0.1.0",
   "bin": {
-    "openclaw-cdk": "bin/openclaw-cdk.js"
+    "openclaw-ec2-cdk": "bin/openclaw-ec2-cdk.js"
   },
   "scripts": {
     "build": "tsc",
