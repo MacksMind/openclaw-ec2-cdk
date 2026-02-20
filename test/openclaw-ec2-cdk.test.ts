@@ -82,6 +82,19 @@ test('Lambda forwarder passes through incoming request headers', () => {
   });
 });
 
+test('Lambda forwarder decodes base64-encoded request bodies', () => {
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    Code: {
+      ZipFile: Match.stringLikeRegexp("event.isBase64Encoded"),
+    },
+  });
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    Code: {
+      ZipFile: Match.stringLikeRegexp("Buffer.from\\(event.body, 'base64'\\).toString\\(\\)"),
+    },
+  });
+});
+
 test('HTTP API with default stage is created', () => {
   template.resourceCountIs('AWS::ApiGatewayV2::Api', 1);
   template.hasResourceProperties('AWS::ApiGatewayV2::Stage', {

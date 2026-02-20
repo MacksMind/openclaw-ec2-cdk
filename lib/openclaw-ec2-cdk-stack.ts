@@ -205,12 +205,15 @@ exports.handler = async (event) => {
   const qs = rawQs ? '?' + rawQs : '';
   const targetPort = path.endsWith('/voice/webhook') ? '3334' : '18789';
   const method = event.requestContext?.http?.method ?? event.httpMethod ?? 'GET';
+  const body = event.isBase64Encoded && event.body
+    ? Buffer.from(event.body, 'base64').toString()
+    : (event.body ?? undefined);
   const res = await fetch(
     \`http://\${process.env.EC2_PRIVATE_IP}:\${targetPort}\${path}\${qs}\`,
     {
       method,
       headers: event.headers ?? {},
-      body: ['GET', 'HEAD'].includes(method) ? undefined : (event.body ?? undefined),
+      body: ['GET', 'HEAD'].includes(method) ? undefined : body,
     }
   );
   return { statusCode: res.status, body: await res.text() };
