@@ -3,7 +3,8 @@ import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as dlm from 'aws-cdk-lib/aws-dlm';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
-import * as apigw from 'aws-cdk-lib/aws-apigateway';
+import * as apigwv2 from 'aws-cdk-lib/aws-apigatewayv2';
+import * as apigwv2Integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import { Construct } from 'constructs';
 
 export class OpenclawCdkStack extends cdk.Stack {
@@ -163,7 +164,7 @@ export class OpenclawCdkStack extends cdk.Stack {
     // Tag the data volume for DLM
     cdk.Tags.of(dataVolume).add('openclaw:backup', 'true');
 
-    let api: apigw.LambdaRestApi | undefined;
+    let api: apigwv2.HttpApi | undefined;
     if (enableWebhook) {
       // --- Webhook Forwarder (API Gateway → Lambda → EC2 ports 18789/3334) ---
       const lambdaSg = new ec2.SecurityGroup(this, 'LambdaSg', {
@@ -196,13 +197,16 @@ export class OpenclawCdkStack extends cdk.Stack {
         },
         code: lambda.Code.fromInline(`
 exports.handler = async (event) => {
-  const qs = event.queryStringParameters
-    ? '?' + new URLSearchParams(event.queryStringParameters).toString()
-    : '';
-  const targetPort = event.path?.endsWith('/voice/webhook') ? '3334' : '18789';
-  const method = event.httpMethod ?? 'GET';
+  const path = event.rawPath ?? event.path ?? '/';
+  const rawQs = event.rawQueryString
+    ?? (event.queryStringParameters
+      ? new URLSearchParams(event.queryStringParameters).toString()
+      : '');
+  const qs = rawQs ? '?' + rawQs : '';
+  const targetPort = path.endsWith('/voice/webhook') ? '3334' : '18789';
+  const method = event.requestContext?.http?.method ?? event.httpMethod ?? 'GET';
   const res = await fetch(
-    \`http://\${process.env.EC2_PRIVATE_IP}:\${targetPort}\${event.path}\${qs}\`,
+    \`http://\${process.env.EC2_PRIVATE_IP}:\${targetPort}\${path}\${qs}\`,
     {
       method,
       headers: event.headers ?? {},
@@ -214,9 +218,14 @@ exports.handler = async (event) => {
       `),
       });
 
-      api = new apigw.LambdaRestApi(this, 'WebhookApi', {
-        handler: forwarder,
-        proxy: true,
+      api = new apigwv2.HttpApi(this, 'WebhookApi', {
+        createDefaultStage: true,
+      });
+
+      api.addRoutes({
+        path: '/{proxy+}',
+        methods: [apigwv2.HttpMethod.ANY],
+        integration: new apigwv2Integrations.HttpLambdaIntegration('WebhookIntegration', forwarder),
       });
     }
 
@@ -228,8 +237,8 @@ exports.handler = async (event) => {
 
     if (api) {
       new cdk.CfnOutput(this, 'WebhookUrl', {
-        value: api.url,
-        description: 'API Gateway URL — append your webhook path (e.g. hooks/pubsub)',
+        value: `${api.apiEndpoint}/`,
+        description: 'HTTP API URL — append your webhook path (e.g. voice/webhook)',
       });
     }
   }

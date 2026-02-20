@@ -82,8 +82,12 @@ test('Lambda forwarder passes through incoming request headers', () => {
   });
 });
 
-test('API Gateway REST API is created', () => {
-  template.resourceCountIs('AWS::ApiGateway::RestApi', 1);
+test('HTTP API with default stage is created', () => {
+  template.resourceCountIs('AWS::ApiGatewayV2::Api', 1);
+  template.hasResourceProperties('AWS::ApiGatewayV2::Stage', {
+    StageName: '$default',
+    AutoDeploy: true,
+  });
 });
 
 test('WebhookUrl is output', () => {
@@ -92,7 +96,7 @@ test('WebhookUrl is output', () => {
 
 test('Lambda and API are not created when enableWebhook=false', () => {
   disabledTemplate.resourceCountIs('AWS::Lambda::Function', 0);
-  disabledTemplate.resourceCountIs('AWS::ApiGateway::RestApi', 0);
+  disabledTemplate.resourceCountIs('AWS::ApiGatewayV2::Api', 0);
 });
 
 test('WebhookUrl is not output when enableWebhook=false', () => {
