@@ -17,6 +17,16 @@ CDK stack for deploying the OpenClaw worker to EC2.
 * `npx cdk diff`    compare deployed stack with current state
 * `npx cdk synth`   emits the synthesized CloudFormation template
 
+### Temporarily disable webhook infra (Lambda + API Gateway)
+
+By default, webhook resources are enabled. To temporarily skip creating the Lambda forwarder and API Gateway:
+
+```
+npx cdk deploy -c enableWebhook=false
+```
+
+Re-enable by omitting the flag (or setting `-c enableWebhook=true`).
+
 ## Operator Runbook
 
 After deploying, grab the instance ID from the stack output:

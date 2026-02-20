@@ -2,9 +2,7 @@ import * as cdk from 'aws-cdk-lib/core';
 import { Template, Match } from 'aws-cdk-lib/assertions';
 import { OpenclawCdkStack } from '../lib/openclaw-ec2-cdk-stack';
 
-let template: Template;
-
-beforeAll(() => {
+const createTemplate = (enableWebhook?: boolean): Template => {
   const app = new cdk.App({
     context: {
       'availability-zones:account=111111111111:region=us-east-1': [
@@ -12,12 +10,21 @@ beforeAll(() => {
       ],
       'ami:account=111111111111:filters.image-type.0=machine:filters.name.0=ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-arm64-server-*:filters.state.0=available:owners.0=099720109477:region=us-east-1':
         'ami-00cdb36f35bd8af7d',
+      ...(enableWebhook === undefined ? {} : { enableWebhook }),
     },
   });
   const stack = new OpenclawCdkStack(app, 'TestStack', {
     env: { account: '111111111111', region: 'us-east-1' },
   });
-  template = Template.fromStack(stack);
+  return Template.fromStack(stack);
+};
+
+let template: Template;
+let disabledTemplate: Template;
+
+beforeAll(() => {
+  template = createTemplate();
+  disabledTemplate = createTemplate(false);
 });
 
 test('Lambda forwarder exists with correct runtime and timeout', () => {
@@ -55,4 +62,13 @@ test('API Gateway REST API is created', () => {
 
 test('WebhookUrl is output', () => {
   template.hasOutput('WebhookUrl', {});
+});
+
+test('Lambda and API are not created when enableWebhook=false', () => {
+  disabledTemplate.resourceCountIs('AWS::Lambda::Function', 0);
+  disabledTemplate.resourceCountIs('AWS::ApiGateway::RestApi', 0);
+});
+
+test('WebhookUrl is not output when enableWebhook=false', () => {
+  expect(disabledTemplate.findOutputs('WebhookUrl')).toEqual({});
 });
