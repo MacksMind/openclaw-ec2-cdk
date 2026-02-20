@@ -44,7 +44,7 @@ test('Lambda forwarder has EC2_PRIVATE_IP env var', () => {
   });
 });
 
-test('Instance security group allows Lambda on port 18789', () => {
+test('Instance security group allows Lambda on ports 18789 and 3334', () => {
   template.hasResourceProperties('AWS::EC2::SecurityGroup', {
     SecurityGroupIngress: Match.arrayWith([
       Match.objectLike({
@@ -52,7 +52,33 @@ test('Instance security group allows Lambda on port 18789', () => {
         FromPort: 18789,
         ToPort: 18789,
       }),
+      Match.objectLike({
+        IpProtocol: 'tcp',
+        FromPort: 3334,
+        ToPort: 3334,
+      }),
     ]),
+  });
+});
+
+test('Lambda forwarder routes /voice/webhook to port 3334', () => {
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    Code: {
+      ZipFile: Match.stringLikeRegexp('voice/webhook'),
+    },
+  });
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    Code: {
+      ZipFile: Match.stringLikeRegexp("'3334'"),
+    },
+  });
+});
+
+test('Lambda forwarder passes through incoming request headers', () => {
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    Code: {
+      ZipFile: Match.stringLikeRegexp('headers: event.headers \\\?\\\? \\\{\\\}'),
+    },
   });
 });
 

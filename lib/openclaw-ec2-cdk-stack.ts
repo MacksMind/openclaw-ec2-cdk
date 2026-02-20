@@ -165,17 +165,22 @@ export class OpenclawCdkStack extends cdk.Stack {
 
     let api: apigw.LambdaRestApi | undefined;
     if (enableWebhook) {
-      // --- Webhook Forwarder (API Gateway → Lambda → EC2 port 18789) ---
+      // --- Webhook Forwarder (API Gateway → Lambda → EC2 ports 18789/3334) ---
       const lambdaSg = new ec2.SecurityGroup(this, 'LambdaSg', {
         vpc,
         description: 'OpenClaw webhook forwarder Lambda',
       });
 
-      // Allow Lambda to reach the EC2 on port 18789 (nothing else inbound)
+      // Allow Lambda to reach the EC2 on required webhook ports (nothing else inbound)
       securityGroup.addIngressRule(
         ec2.Peer.securityGroupId(lambdaSg.securityGroupId),
         ec2.Port.tcp(18789),
         'Webhook forwarder Lambda',
+      );
+      securityGroup.addIngressRule(
+        ec2.Peer.securityGroupId(lambdaSg.securityGroupId),
+        ec2.Port.tcp(3334),
+        'Webhook forwarder Lambda voice webhook',
       );
 
       const forwarder = new lambda.Function(this, 'WebhookForwarder', {
@@ -194,12 +199,14 @@ exports.handler = async (event) => {
   const qs = event.queryStringParameters
     ? '?' + new URLSearchParams(event.queryStringParameters).toString()
     : '';
+  const targetPort = event.path?.endsWith('/voice/webhook') ? '3334' : '18789';
+  const method = event.httpMethod ?? 'GET';
   const res = await fetch(
-    \`http://\${process.env.EC2_PRIVATE_IP}:18789\${event.path}\${qs}\`,
+    \`http://\${process.env.EC2_PRIVATE_IP}:\${targetPort}\${event.path}\${qs}\`,
     {
-      method: event.httpMethod,
-      headers: { 'content-type': event.headers?.['content-type'] ?? 'application/json' },
-      body: ['GET', 'HEAD'].includes(event.httpMethod) ? undefined : (event.body ?? undefined),
+      method,
+      headers: event.headers ?? {},
+      body: ['GET', 'HEAD'].includes(method) ? undefined : (event.body ?? undefined),
     }
   );
   return { statusCode: res.status, body: await res.text() };
