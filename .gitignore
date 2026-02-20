@@ -9,3 +9,6 @@ node_modules
 # CDK asset staging directory
 .cdk.staging
 cdk.out
+
+# Local CDK context cache
+cdk.context.json
