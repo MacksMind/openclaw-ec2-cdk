@@ -3,6 +3,9 @@
 *.d.ts
 node_modules
 
+# Local editor/assistant settings
+.claude/settings.local.json
+
 # CDK asset staging directory
 .cdk.staging
 cdk.out
