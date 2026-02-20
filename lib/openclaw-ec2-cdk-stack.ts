@@ -3,6 +3,11 @@ import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as dlm from 'aws-cdk-lib/aws-dlm';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
+import * as elbv2 from 'aws-cdk-lib/aws-elasticloadbalancingv2';
+import * as elbv2Targets from 'aws-cdk-lib/aws-elasticloadbalancingv2-targets';
+import * as acm from 'aws-cdk-lib/aws-certificatemanager';
+import * as route53 from 'aws-cdk-lib/aws-route53';
+import * as route53Targets from 'aws-cdk-lib/aws-route53-targets';
 import * as apigwv2 from 'aws-cdk-lib/aws-apigatewayv2';
 import * as apigwv2Integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import { Construct } from 'constructs';
@@ -15,6 +20,24 @@ export class OpenclawCdkStack extends cdk.Stack {
     const enableWebhook = enableWebhookContext === undefined
       ? true
       : String(enableWebhookContext).toLowerCase() !== 'false';
+
+    const voiceRootDomain = process.env.VOICE_ROOT_DOMAIN
+      ?? this.node.tryGetContext('voiceRootDomain');
+    const voiceHostedZoneId = process.env.VOICE_HOSTED_ZONE_ID
+      ?? this.node.tryGetContext('voiceHostedZoneId');
+    const voiceSubdomain = process.env.VOICE_SUBDOMAIN
+      ?? this.node.tryGetContext('voiceSubdomain')
+      ?? 'openclaw-voice';
+
+    const hasVoiceRootDomain = Boolean(voiceRootDomain);
+    const hasVoiceHostedZoneId = Boolean(voiceHostedZoneId);
+    if (hasVoiceRootDomain !== hasVoiceHostedZoneId) {
+      throw new Error(
+        'Voice custom domain config is incomplete. Set both VOICE_ROOT_DOMAIN and VOICE_HOSTED_ZONE_ID (or context keys voiceRootDomain and voiceHostedZoneId), or set neither.',
+      );
+    }
+
+    const voiceDomainName = voiceRootDomain ? `${voiceSubdomain}.${voiceRootDomain}` : undefined;
 
     // --- VPC ---
     const vpc = new ec2.Vpc(this, 'Vpc', {
@@ -165,8 +188,106 @@ export class OpenclawCdkStack extends cdk.Stack {
     cdk.Tags.of(dataVolume).add('openclaw:backup', 'true');
 
     let api: apigwv2.HttpApi | undefined;
+    let alb: elbv2.ApplicationLoadBalancer | undefined;
     if (enableWebhook) {
-      // --- Webhook Forwarder (API Gateway → Lambda → EC2 ports 18789/3334) ---
+      // --- Public ALB for Twilio voice traffic ---
+      const albSg = new ec2.SecurityGroup(this, 'AlbSg', {
+        vpc,
+        description: 'Public ALB for Twilio voice webhook traffic',
+        allowAllOutbound: true,
+      });
+      albSg.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(80), 'Public HTTP ingress for Twilio voice webhook');
+
+      // Allow ALB to reach voice webhook port on instance
+      securityGroup.addIngressRule(
+        ec2.Peer.securityGroupId(albSg.securityGroupId),
+        ec2.Port.tcp(3334),
+        'ALB to OpenClaw voice webhook',
+      );
+
+      alb = new elbv2.ApplicationLoadBalancer(this, 'VoiceAlb', {
+        vpc,
+        internetFacing: true,
+        securityGroup: albSg,
+        vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
+      });
+
+      const voiceTargetGroup = new elbv2.ApplicationTargetGroup(this, 'VoiceAlbTargetGroup', {
+        vpc,
+        targetType: elbv2.TargetType.INSTANCE,
+        protocol: elbv2.ApplicationProtocol.HTTP,
+        port: 3334,
+        targets: [new elbv2Targets.InstanceTarget(instance)],
+        healthCheck: {
+          path: '/',
+          healthyHttpCodes: '200-499',
+        },
+      });
+
+      let shouldRedirectHttpToHttps = false;
+
+      if (voiceRootDomain && voiceHostedZoneId && voiceDomainName) {
+        const hostedZone = route53.HostedZone.fromHostedZoneAttributes(this, 'VoiceHostedZone', {
+          hostedZoneId: voiceHostedZoneId,
+          zoneName: voiceRootDomain,
+        });
+
+        const certificate = new acm.Certificate(this, 'VoiceAlbCertificate', {
+          domainName: voiceDomainName,
+          validation: acm.CertificateValidation.fromDns(hostedZone),
+        });
+
+        const httpsListener = alb.addListener('VoiceAlbHttpsListener', {
+          port: 443,
+          protocol: elbv2.ApplicationProtocol.HTTPS,
+          certificates: [certificate],
+          defaultAction: elbv2.ListenerAction.fixedResponse(404, {
+            contentType: 'text/plain',
+            messageBody: 'Not Found',
+          }),
+        });
+        httpsListener.addAction('VoicePathHttpsRule', {
+          priority: 10,
+          conditions: [elbv2.ListenerCondition.pathPatterns(['/voice/*'])],
+          action: elbv2.ListenerAction.forward([voiceTargetGroup]),
+        });
+        shouldRedirectHttpToHttps = true;
+
+        new route53.ARecord(this, 'VoiceAlbAliasRecord', {
+          zone: hostedZone,
+          recordName: voiceSubdomain,
+          target: route53.RecordTarget.fromAlias(new route53Targets.LoadBalancerTarget(alb)),
+        });
+      }
+
+      const httpListener = alb.addListener('VoiceAlbHttpListener', shouldRedirectHttpToHttps
+        ? {
+            port: 80,
+            protocol: elbv2.ApplicationProtocol.HTTP,
+            defaultAction: elbv2.ListenerAction.redirect({
+              protocol: 'HTTPS',
+              port: '443',
+              permanent: true,
+            }),
+          }
+        : {
+            port: 80,
+            protocol: elbv2.ApplicationProtocol.HTTP,
+            defaultAction: elbv2.ListenerAction.fixedResponse(404, {
+              contentType: 'text/plain',
+              messageBody: 'Not Found',
+            }),
+          });
+
+      if (!shouldRedirectHttpToHttps) {
+        httpListener.addAction('VoicePathHttpRule', {
+          priority: 10,
+          conditions: [elbv2.ListenerCondition.pathPatterns(['/voice/*'])],
+          action: elbv2.ListenerAction.forward([voiceTargetGroup]),
+        });
+      }
+
+      // --- Webhook Forwarder (API Gateway → Lambda → EC2 ports 18789) ---
       const lambdaSg = new ec2.SecurityGroup(this, 'LambdaSg', {
         vpc,
         description: 'OpenClaw webhook forwarder Lambda',
@@ -177,11 +298,6 @@ export class OpenclawCdkStack extends cdk.Stack {
         ec2.Peer.securityGroupId(lambdaSg.securityGroupId),
         ec2.Port.tcp(18789),
         'Webhook forwarder Lambda',
-      );
-      securityGroup.addIngressRule(
-        ec2.Peer.securityGroupId(lambdaSg.securityGroupId),
-        ec2.Port.tcp(3334),
-        'Webhook forwarder Lambda voice webhook',
       );
 
       const forwarder = new lambda.Function(this, 'WebhookForwarder', {
@@ -203,7 +319,7 @@ exports.handler = async (event) => {
       ? new URLSearchParams(event.queryStringParameters).toString()
       : '');
   const qs = rawQs ? '?' + rawQs : '';
-  const targetPort = path.endsWith('/voice/webhook') ? '3334' : '18789';
+  const targetPort = '18789';
   const method = event.requestContext?.http?.method ?? event.httpMethod ?? 'GET';
   const body = event.isBase64Encoded && event.body
     ? Buffer.from(event.body, 'base64').toString()
@@ -242,6 +358,20 @@ exports.handler = async (event) => {
       new cdk.CfnOutput(this, 'WebhookUrl', {
         value: `${api.apiEndpoint}/`,
         description: 'HTTP API URL — append your webhook path (e.g. voice/webhook)',
+      });
+    }
+
+    if (alb) {
+      new cdk.CfnOutput(this, 'VoiceAlbDnsName', {
+        value: alb.loadBalancerDnsName,
+        description: 'Public ALB DNS for Twilio voice webhook traffic',
+      });
+
+      new cdk.CfnOutput(this, 'VoiceWebhookUrl', {
+        value: voiceDomainName && voiceRootDomain && voiceHostedZoneId
+          ? `https://${voiceDomainName}/voice/webhook`
+          : `http://${alb.loadBalancerDnsName}/voice/webhook`,
+        description: 'Public voice webhook URL via ALB',
       });
     }
   }

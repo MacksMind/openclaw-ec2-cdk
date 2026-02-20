@@ -44,7 +44,7 @@ test('Lambda forwarder has EC2_PRIVATE_IP env var', () => {
   });
 });
 
-test('Instance security group allows Lambda on ports 18789 and 3334', () => {
+test('Instance security group allows Lambda on port 18789', () => {
   template.hasResourceProperties('AWS::EC2::SecurityGroup', {
     SecurityGroupIngress: Match.arrayWith([
       Match.objectLike({
@@ -52,24 +52,14 @@ test('Instance security group allows Lambda on ports 18789 and 3334', () => {
         FromPort: 18789,
         ToPort: 18789,
       }),
-      Match.objectLike({
-        IpProtocol: 'tcp',
-        FromPort: 3334,
-        ToPort: 3334,
-      }),
     ]),
   });
 });
 
-test('Lambda forwarder routes /voice/webhook to port 3334', () => {
+test('Lambda forwarder routes API Gateway traffic to port 18789', () => {
   template.hasResourceProperties('AWS::Lambda::Function', {
     Code: {
-      ZipFile: Match.stringLikeRegexp('voice/webhook'),
-    },
-  });
-  template.hasResourceProperties('AWS::Lambda::Function', {
-    Code: {
-      ZipFile: Match.stringLikeRegexp("'3334'"),
+      ZipFile: Match.stringLikeRegexp("const targetPort = '18789'"),
     },
   });
 });
@@ -103,13 +93,41 @@ test('HTTP API with default stage is created', () => {
   });
 });
 
+test('Public ALB and listener are created for voice traffic', () => {
+  template.resourceCountIs('AWS::ElasticLoadBalancingV2::LoadBalancer', 1);
+  template.hasResourceProperties('AWS::ElasticLoadBalancingV2::Listener', {
+    Port: 80,
+    Protocol: 'HTTP',
+  });
+  template.hasResourceProperties('AWS::ElasticLoadBalancingV2::TargetGroup', {
+    Port: 3334,
+    Protocol: 'HTTP',
+  });
+  template.hasResourceProperties('AWS::ElasticLoadBalancingV2::ListenerRule', {
+    Conditions: Match.arrayWith([
+      Match.objectLike({
+        Field: 'path-pattern',
+        PathPatternConfig: {
+          Values: ['/voice/*'],
+        },
+      }),
+    ]),
+  });
+});
+
 test('WebhookUrl is output', () => {
   template.hasOutput('WebhookUrl', {});
+});
+
+test('Voice ALB outputs are present', () => {
+  template.hasOutput('VoiceAlbDnsName', {});
+  template.hasOutput('VoiceWebhookUrl', {});
 });
 
 test('Lambda and API are not created when enableWebhook=false', () => {
   disabledTemplate.resourceCountIs('AWS::Lambda::Function', 0);
   disabledTemplate.resourceCountIs('AWS::ApiGatewayV2::Api', 0);
+  disabledTemplate.resourceCountIs('AWS::ElasticLoadBalancingV2::LoadBalancer', 0);
 });
 
 test('WebhookUrl is not output when enableWebhook=false', () => {
