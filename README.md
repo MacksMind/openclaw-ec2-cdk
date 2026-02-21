@@ -58,7 +58,9 @@ Then open `http://localhost:PORT` in your browser.
 
 ```
 aws ssm start-session --target <InstanceId>
+sudo su - ubuntu
 sudo npm install -g openclaw@latest
+openclaw doctor
 ```
 
 ## Twilio voice webhook via ALB
