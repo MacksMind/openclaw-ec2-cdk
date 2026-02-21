@@ -115,9 +115,11 @@ export class OpenclawCdkStack extends cdk.Stack {
     );
 
     // --- EC2 Instance ---
+    // Pin worker to a deterministic subnet/AZ so retained data volume can be reattached on replacements.
+    const workerSubnet = vpc.publicSubnets[0];
     const instance = new ec2.Instance(this, 'Worker', {
       vpc,
-      vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
+      vpcSubnets: { subnets: [workerSubnet] },
       instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.SMALL),
       machineImage: ec2.MachineImage.lookup({
         name: 'ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-arm64-server-*',
@@ -287,7 +289,7 @@ export class OpenclawCdkStack extends cdk.Stack {
         });
       }
 
-      // --- Webhook Forwarder (API Gateway → Lambda → EC2 ports 18789) ---
+      // --- Webhook Forwarder (API Gateway → Lambda → EC2 ports 8080) ---
       const lambdaSg = new ec2.SecurityGroup(this, 'LambdaSg', {
         vpc,
         description: 'OpenClaw webhook forwarder Lambda',
@@ -296,7 +298,7 @@ export class OpenclawCdkStack extends cdk.Stack {
       // Allow Lambda to reach the EC2 on required webhook ports (nothing else inbound)
       securityGroup.addIngressRule(
         ec2.Peer.securityGroupId(lambdaSg.securityGroupId),
-        ec2.Port.tcp(18789),
+        ec2.Port.tcp(8080),
         'Webhook forwarder Lambda',
       );
 
@@ -318,21 +320,50 @@ exports.handler = async (event) => {
     ?? (event.queryStringParameters
       ? new URLSearchParams(event.queryStringParameters).toString()
       : '');
-  const qs = rawQs ? '?' + rawQs : '';
-  const targetPort = '18789';
+  const qs = '';
+  const targetPort = '8080';
   const method = event.requestContext?.http?.method ?? event.httpMethod ?? 'GET';
+  const forwardedHeaders = { ...(event.headers ?? {}) };
+  for (const [queryKey, queryValue] of new URLSearchParams(rawQs).entries()) {
+    const normalizedKey = queryKey.charAt(0).toUpperCase() + queryKey.slice(1);
+    forwardedHeaders['X-OpenClaw-' + normalizedKey] = queryValue;
+  }
+  delete forwardedHeaders['host'];
   const body = event.isBase64Encoded && event.body
     ? Buffer.from(event.body, 'base64').toString()
     : (event.body ?? undefined);
-  const res = await fetch(
-    \`http://\${process.env.EC2_PRIVATE_IP}:\${targetPort}\${path}\${qs}\`,
-    {
+  const targetUrl = \`http://\${process.env.EC2_PRIVATE_IP}:\${targetPort}\${path}\${qs}\`;
+  try {
+    const res = await fetch(
+      targetUrl,
+      {
+        method,
+        headers: forwardedHeaders,
+        body: ['GET', 'HEAD'].includes(method) ? undefined : body,
+      }
+    );
+    const responseBody = await res.text();
+    console.log(JSON.stringify({
+      message: 'EC2 response',
       method,
-      headers: event.headers ?? {},
-      body: ['GET', 'HEAD'].includes(method) ? undefined : body,
-    }
-  );
-  return { statusCode: res.status, body: await res.text() };
+      targetUrl,
+      statusCode: res.status,
+      headers: Object.fromEntries(res.headers.entries()),
+      body: responseBody,
+    }));
+    return { statusCode: res.status, body: responseBody };
+  } catch (error) {
+    console.error(JSON.stringify({
+      message: 'EC2 forwarder error',
+      method,
+      targetUrl,
+      queryString: rawQs,
+      errorName: error instanceof Error ? error.name : undefined,
+      error: error instanceof Error ? error.message : String(error),
+      errorCause: error instanceof Error && 'cause' in error ? String(error.cause) : undefined,
+    }));
+    throw error;
+  }
 };
       `),
       });

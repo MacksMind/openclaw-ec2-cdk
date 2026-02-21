@@ -47,7 +47,7 @@ aws ssm start-session --target <InstanceId>
 ```
 aws ssm start-session --target <InstanceId> \
   --document-name AWS-StartPortForwardingSession \
-  --parameters '{"portNumber":["18789"],"localPortNumber":["18789"]}'
+  --parameters '{"portNumber":["8080"],"localPortNumber":["8080"]}'
 ```
 
 Then open `http://localhost:PORT` in your browser.

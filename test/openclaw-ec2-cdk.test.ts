@@ -44,22 +44,78 @@ test('Lambda forwarder has EC2_PRIVATE_IP env var', () => {
   });
 });
 
-test('Instance security group allows Lambda on port 18789', () => {
+test('Worker instance is pinned to first public subnet', () => {
+  template.hasResourceProperties('AWS::EC2::Instance', {
+    SubnetId: {
+      Ref: Match.stringLikeRegexp('VpcPublicSubnet1Subnet'),
+    },
+  });
+});
+
+test('Instance security group allows Lambda on port 8080', () => {
   template.hasResourceProperties('AWS::EC2::SecurityGroup', {
     SecurityGroupIngress: Match.arrayWith([
       Match.objectLike({
         IpProtocol: 'tcp',
-        FromPort: 18789,
-        ToPort: 18789,
+        FromPort: 8080,
+        ToPort: 8080,
       }),
     ]),
   });
 });
 
-test('Lambda forwarder routes API Gateway traffic to port 18789', () => {
+test('Lambda forwarder routes API Gateway traffic to port 8080', () => {
   template.hasResourceProperties('AWS::Lambda::Function', {
     Code: {
-      ZipFile: Match.stringLikeRegexp("const targetPort = '18789'"),
+      ZipFile: Match.stringLikeRegexp("const targetPort = '8080'"),
+    },
+  });
+});
+
+test('Lambda forwarder logs exact EC2 response and logs fetch errors', () => {
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    Code: {
+      ZipFile: Match.stringLikeRegexp('try \\\{'),
+    },
+  });
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    Code: {
+      ZipFile: Match.stringLikeRegexp('console\\.log\\(JSON\\.stringify\\(\\{'),
+    },
+  });
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    Code: {
+      ZipFile: Match.stringLikeRegexp('headers: Object\\.fromEntries\\(res\\.headers\\.entries\\(\\)\\)'),
+    },
+  });
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    Code: {
+      ZipFile: Match.stringLikeRegexp("message: 'EC2 response'[\\s\\S]*targetUrl,"),
+    },
+  });
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    Code: {
+      ZipFile: Match.stringLikeRegexp('catch \\\(error\\\)'),
+    },
+  });
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    Code: {
+      ZipFile: Match.stringLikeRegexp('console\\.error\\(JSON\\.stringify\\(\\{'),
+    },
+  });
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    Code: {
+      ZipFile: Match.stringLikeRegexp('const targetUrl = `http://\\$\\{process\\.env\\.EC2_PRIVATE_IP\\}:\\$\\{targetPort\\}\\$\\{path\\}\\$\\{qs\\}`'),
+    },
+  });
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    Code: {
+      ZipFile: Match.stringLikeRegexp('targetUrl,'),
+    },
+  });
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    Code: {
+      ZipFile: Match.stringLikeRegexp('errorCause: error instanceof Error && \'cause\' in error \\\? String\\(error\\.cause\\) : undefined'),
     },
   });
 });
@@ -67,7 +123,12 @@ test('Lambda forwarder routes API Gateway traffic to port 18789', () => {
 test('Lambda forwarder passes through incoming request headers', () => {
   template.hasResourceProperties('AWS::Lambda::Function', {
     Code: {
-      ZipFile: Match.stringLikeRegexp('headers: event.headers \\\?\\\? \\\{\\\}'),
+      ZipFile: Match.stringLikeRegexp('const forwardedHeaders = \\\{ \\\.\\\.\\\.\\(event.headers \\\?\\\? \\\{\\\}\\) \\\}'),
+    },
+  });
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    Code: {
+      ZipFile: Match.stringLikeRegexp('headers: forwardedHeaders'),
     },
   });
 });
@@ -81,6 +142,40 @@ test('Lambda forwarder decodes base64-encoded request bodies', () => {
   template.hasResourceProperties('AWS::Lambda::Function', {
     Code: {
       ZipFile: Match.stringLikeRegexp("Buffer.from\\(event.body, 'base64'\\).toString\\(\\)"),
+    },
+  });
+});
+
+test('Lambda forwarder maps query params to X-OpenClaw-* headers', () => {
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    Code: {
+      ZipFile: Match.stringLikeRegexp('new URLSearchParams\\(rawQs\\)\\.entries\\(\\)'),
+    },
+  });
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    Code: {
+      ZipFile: Match.stringLikeRegexp('const normalizedKey = queryKey\\.charAt\\(0\\)\\.toUpperCase\\(\\)'),
+    },
+  });
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    Code: {
+      ZipFile: Match.stringLikeRegexp("forwardedHeaders\\['X-OpenClaw-' \\+ normalizedKey\\] = queryValue"),
+    },
+  });
+});
+
+test('Lambda forwarder still uses X-OpenClaw-Token header name', () => {
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    Code: {
+      ZipFile: Match.stringLikeRegexp('X-OpenClaw-'),
+    },
+  });
+});
+
+test('Lambda forwarder strips forwarded query string entirely', () => {
+  template.hasResourceProperties('AWS::Lambda::Function', {
+    Code: {
+      ZipFile: Match.stringLikeRegexp("const qs = ''"),
     },
   });
 });
