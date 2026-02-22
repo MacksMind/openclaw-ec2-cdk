@@ -120,7 +120,7 @@ export class OpenclawCdkStack extends cdk.Stack {
     const instance = new ec2.Instance(this, 'Worker', {
       vpc,
       vpcSubnets: { subnets: [workerSubnet] },
-      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.SMALL),
+      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.MEDIUM),
       machineImage: ec2.MachineImage.lookup({
         name: 'ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-arm64-server-*',
         owners: ['099720109477'], // Canonical

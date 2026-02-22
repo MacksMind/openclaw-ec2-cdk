@@ -25,10 +25,10 @@ Provision a lightweight EC2 instance to run `openclaw` as a background worker.
 
 | Question | Answer |
 |----------|--------|
-| Instance type | t4g.small (ARM/Graviton) |
+| Instance type | t4g.medium (ARM/Graviton) |
 | AMI / OS | Ubuntu 24.04 LTS (arm64) |
 | Root volume size (GB) | Default (8 GB) |
-| Additional EBS volumes? | Yes — 1 GB gp3 for ~/.openclaw config (persists across instance recreation) |
+| Additional EBS volumes? | Yes — 2 GB gp3 mounted at /home/ubuntu (persists across instance recreation) |
 | EBS data volume protection | RemovalPolicy.RETAIN, deleteOnTermination: false, snapshots every 4 hours via DLM (7-day retention) |
 | Number of instances | 1 |
 | Auto Scaling needed? | No |
@@ -49,7 +49,7 @@ Provision a lightweight EC2 instance to run `openclaw` as a background worker.
 
 | Question | Answer |
 |----------|--------|
-| Instance provisioning | User data script installs Node 24, mounts persistent EBS volume to ~/.openclaw |
+| Instance provisioning | User data script installs Node 24, seeds persistent EBS volume, then mounts it at /home/ubuntu |
 | App installation | Manual — operator SSMs in and runs `sudo npm install -g openclaw@latest` |
 | App configuration | Manual — operator configures openclaw after install |
 | Updates | Manual — `sudo npm install -g openclaw@latest` again |
@@ -72,13 +72,13 @@ Provision a lightweight EC2 instance to run `openclaw` as a background worker.
 
 ## Cost Estimate
 
-- t4g.small on-demand: ~$12.26/mo
+- t4g.medium on-demand: ~$24.53/mo
 - Public IPv4 address: ~$3.65/mo
 - EBS root (8 GB gp3): ~$0.64/mo
-- EBS data (1 GB gp3): ~$0.08/mo
+- EBS data (2 GB gp3): ~$0.16/mo
 - EBS snapshots (DLM, every 4h, 7-day retention): ~$0.05/mo (incremental, ~1 GB stored)
 - Data transfer: minimal
-- **Total: ~$17/mo**
+- **Total: ~$29/mo**
 
 ## CloudFormation Outputs
 
