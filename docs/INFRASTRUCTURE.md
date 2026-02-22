@@ -72,13 +72,7 @@ Provision a lightweight EC2 instance to run `openclaw` as a background worker.
 
 ## Cost Estimate
 
-- t4g.medium on-demand: ~$24.53/mo
-- Public IPv4 address: ~$3.65/mo
-- EBS root (8 GB gp3): ~$0.64/mo
-- EBS data (2 GB gp3): ~$0.16/mo
-- EBS snapshots (DLM, every 4h, 7-day retention): ~$0.05/mo (incremental, ~1 GB stored)
-- Data transfer: minimal
-- **Total: ~$29/mo**
+Cost estimate is maintained in [README.md](../README.md) to keep a single source of truth.
 
 ## CloudFormation Outputs
 

@@ -17,6 +17,40 @@ CDK stack for deploying the OpenClaw worker to EC2.
 * `npx cdk diff`    compare deployed stack with current state
 * `npx cdk synth`   emits the synthesized CloudFormation template
 
+## What This Stack Creates
+
+### Always created
+
+- VPC (`10.0.0.0/16`) with 2 public subnets across AZs and no NAT gateway
+- EC2 worker (`t4g.medium`, Ubuntu 24.04 arm64) with `20 GB gp3` root volume
+- Worker security group (egress-only baseline)
+- EC2 IAM role with `AmazonSSMManagedInstanceCore`
+- Persistent data EBS volume (`2 GB gp3`, encrypted, retained) attached to the worker at `/dev/xvdf`
+- DLM lifecycle policy + DLM service role for 4-hour snapshots (7-day retention via count)
+- Data volume backup tag: `openclaw:backup=true`
+- CloudFormation output: `InstanceId`
+
+### Created when `enableWebhook=true` (default)
+
+- Public ALB for voice traffic
+- ALB security group allowing inbound `80/tcp`
+- Target group forwarding `/voice/*` traffic to worker `3334/tcp`
+- Lambda webhook forwarder in the VPC
+- Lambda security group
+- Worker SG ingress from Lambda SG on `8080/tcp`
+- Worker SG ingress from ALB SG on `3334/tcp`
+- API Gateway HTTP API with default stage and route `ANY /{proxy+}` to Lambda
+- CloudFormation outputs: `WebhookUrl`, `VoiceAlbDnsName`, `VoiceWebhookUrl`
+
+### Additional resources when custom voice domain is configured
+
+If `VOICE_ROOT_DOMAIN` + `VOICE_HOSTED_ZONE_ID` (or equivalent context) are set:
+
+- ACM certificate for the configured voice domain (DNS validated)
+- ALB HTTPS listener on `443/tcp`
+- HTTP (`80`) listener redirects to HTTPS
+- Route53 alias A record for the configured voice subdomain
+
 ### Temporarily disable webhook infra (Lambda + API Gateway)
 
 By default, webhook resources are enabled. To temporarily skip creating the Lambda forwarder and API Gateway:
@@ -26,6 +60,37 @@ npx cdk deploy -c enableWebhook=false
 ```
 
 Re-enable by omitting the flag (or setting `-c enableWebhook=true`).
+
+## Cost Estimate (us-east-1, on-demand)
+
+Assumptions: 1x `t4g.medium` Linux instance, one public IPv4 address, gp3 root/data volumes, and DLM snapshots every 4 hours with 7-day retention.
+
+Baseline (core stack):
+
+- EC2 (`t4g.medium`): ~$24.53/mo
+- Public IPv4 address: ~$3.65/mo
+- EBS root (`20 GB gp3`): ~$1.60/mo
+- EBS data (`2 GB gp3`): ~$0.16/mo
+- EBS snapshots (DLM, every 4h, 7-day retention): ~$0.05/mo (incremental, ~1 GB stored)
+- Data transfer: minimal (workload-dependent)
+- **Baseline total: ~$30/mo**
+
+Additional when webhook resources are enabled (`enableWebhook=true`):
+
+- Application Load Balancer (hourly + low-traffic LCUs): typically ~$18–$23/mo
+- API Gateway HTTP API: usage-based (often low at small request volume)
+- Lambda forwarder: usage-based (often low at small request volume)
+- Extra data transfer and ALB processed bytes: workload-dependent
+
+Optional custom-domain additions:
+
+- ACM public certificate: $0 (AWS-managed public cert)
+- Route53 alias record queries: minimal for low traffic
+- Hosted zone: $0 if reusing an existing zone; ~$0.50/mo if creating a new zone
+
+- **Typical total with webhook enabled: ~$48–$53+/mo**
+
+Actual costs vary with region, usage, and snapshot churn.
 
 ## Operator Runbook
 
