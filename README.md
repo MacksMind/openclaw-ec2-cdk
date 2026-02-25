@@ -22,15 +22,15 @@ CDK stack for deploying the OpenClaw worker to EC2.
 ### Always created
 
 - VPC (`10.0.0.0/16`) with 2 public subnets across AZs and no NAT gateway
-- EC2 worker (`t4g.medium`, Ubuntu 24.04 arm64) with `20 GB gp3` root volume
+- EC2 worker (`t4g.large`, Ubuntu 24.04 arm64) with `20 GB gp3` root volume
 - Worker security group (egress-only baseline)
 - EC2 IAM role with `AmazonSSMManagedInstanceCore`
-- Persistent data EBS volume (`2 GB gp3`, encrypted, retained) attached to the worker at `/dev/xvdf`
+- Persistent data EBS volume (`4 GB gp3`, encrypted, retained) attached to the worker at `/dev/xvdf`
 - DLM lifecycle policy + DLM service role for 4-hour snapshots (7-day retention via count)
 - Data volume backup tag: `openclaw:backup=true`
 - CloudFormation output: `InstanceId`
 
-### Created when `enableWebhook=true` (default)
+### Created when `enableWebhook=true`
 
 - Public ALB for voice traffic
 - ALB security group allowing inbound `80/tcp`
@@ -51,29 +51,29 @@ If `VOICE_ROOT_DOMAIN` + `VOICE_HOSTED_ZONE_ID` (or equivalent context) are set:
 - HTTP (`80`) listener redirects to HTTPS
 - Route53 alias A record for the configured voice subdomain
 
-### Temporarily disable webhook infra (Lambda + API Gateway)
+### Enable webhook infra (Lambda + API Gateway + ALB)
 
-By default, webhook resources are enabled. To temporarily skip creating the Lambda forwarder and API Gateway:
+By default, webhook resources are not created. To enable the Lambda forwarder, API Gateway, and voice ALB:
 
 ```
-npx cdk deploy -c enableWebhook=false
+npx cdk deploy -c enableWebhook=true
 ```
 
-Re-enable by omitting the flag (or setting `-c enableWebhook=true`).
+Disable again with `-c enableWebhook=false` (or by omitting the flag).
 
 ## Cost Estimate (us-east-1, on-demand)
 
-Assumptions: 1x `t4g.medium` Linux instance, one public IPv4 address, gp3 root/data volumes, and DLM snapshots every 4 hours with 7-day retention.
+Assumptions: 1x `t4g.large` Linux instance, one public IPv4 address, gp3 root/data volumes, and DLM snapshots every 4 hours with 7-day retention.
 
 Baseline (core stack):
 
-- EC2 (`t4g.medium`): ~$24.53/mo
+- EC2 (`t4g.large`): ~$49.06/mo
 - Public IPv4 address: ~$3.65/mo
 - EBS root (`20 GB gp3`): ~$1.60/mo
-- EBS data (`2 GB gp3`): ~$0.16/mo
+- EBS data (`4 GB gp3`): ~$0.32/mo
 - EBS snapshots (DLM, every 4h, 7-day retention): ~$0.05/mo (incremental, ~1 GB stored)
 - Data transfer: minimal (workload-dependent)
-- **Baseline total: ~$30/mo**
+- **Baseline total: ~$55/mo**
 
 Additional when webhook resources are enabled (`enableWebhook=true`):
 
@@ -88,7 +88,7 @@ Optional custom-domain additions:
 - Route53 alias record queries: minimal for low traffic
 - Hosted zone: $0 if reusing an existing zone; ~$0.50/mo if creating a new zone
 
-- **Typical total with webhook enabled: ~$48–$53+/mo**
+- **Typical total with webhook enabled: ~$73–$78+/mo**
 
 Actual costs vary with region, usage, and snapshot churn.
 
@@ -117,9 +117,9 @@ aws ssm start-session --target <InstanceId> \
 
 Then open `http://localhost:PORT` in your browser.
 
-### Update openclaw
+### Install or update openclaw
 
-`openclaw@latest` is installed automatically on first boot. To update to a newer version:
+`openclaw` is not installed automatically during initialization. Install (or update) it manually:
 
 ```
 aws ssm start-session --target <InstanceId>

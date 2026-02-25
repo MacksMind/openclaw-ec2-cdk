@@ -18,8 +18,8 @@ export class OpenclawCdkStack extends cdk.Stack {
 
     const enableWebhookContext = this.node.tryGetContext('enableWebhook');
     const enableWebhook = enableWebhookContext === undefined
-      ? true
-      : String(enableWebhookContext).toLowerCase() !== 'false';
+      ? false
+      : String(enableWebhookContext).toLowerCase() === 'true';
 
     const voiceRootDomain = process.env.VOICE_ROOT_DOMAIN
       ?? this.node.tryGetContext('voiceRootDomain');
@@ -77,13 +77,10 @@ export class OpenclawCdkStack extends cdk.Stack {
       'curl -fsSL https://deb.nodesource.com/setup_24.x | bash -',
       'apt-get install -y nodejs',
 
-      // Install openclaw globally
-      'npm install -g openclaw@latest',
-
       // Find the EBS data volume (Nitro instances use NVMe — /dev/xvdf maps to /dev/nvme*n1)
       'DATA_DEV=""',
       'for i in $(seq 1 30); do',
-      '  DATA_DEV=$(lsblk -dno NAME,SIZE | awk \'$2 == "2G" {print "/dev/"$1}\' | grep -v nvme0)',
+      '  DATA_DEV=$(lsblk -dno NAME,SIZE | awk \'$2 == "4G" {print "/dev/"$1}\' | grep -v nvme0)',
       '  [ -n "$DATA_DEV" ] && break',
       '  echo "Waiting for EBS data volume... ($i)"',
       '  sleep 2',
@@ -120,7 +117,7 @@ export class OpenclawCdkStack extends cdk.Stack {
     const instance = new ec2.Instance(this, 'Worker', {
       vpc,
       vpcSubnets: { subnets: [workerSubnet] },
-      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.MEDIUM),
+      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.LARGE),
       machineImage: ec2.MachineImage.lookup({
         name: 'ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-arm64-server-*',
         owners: ['099720109477'], // Canonical
@@ -142,7 +139,7 @@ export class OpenclawCdkStack extends cdk.Stack {
     // --- Persistent EBS Volume (same AZ as instance) ---
     const dataVolume = new ec2.Volume(this, 'DataVolume', {
       availabilityZone: instance.instanceAvailabilityZone,
-      size: cdk.Size.gibibytes(2),
+      size: cdk.Size.gibibytes(4),
       volumeType: ec2.EbsDeviceVolumeType.GP3,
       encrypted: true,
       removalPolicy: cdk.RemovalPolicy.RETAIN,

@@ -25,10 +25,10 @@ Provision a lightweight EC2 instance to run `openclaw` as a background worker.
 
 | Question | Answer |
 |----------|--------|
-| Instance type | t4g.medium (ARM/Graviton) |
+| Instance type | t4g.large (ARM/Graviton) |
 | AMI / OS | Ubuntu 24.04 LTS (arm64) |
 | Root volume size (GB) | Default (8 GB) |
-| Additional EBS volumes? | Yes — 2 GB gp3 mounted at /home/ubuntu (persists across instance recreation) |
+| Additional EBS volumes? | Yes — 4 GB gp3 mounted at /home/ubuntu (persists across instance recreation) |
 | EBS data volume protection | RemovalPolicy.RETAIN, deleteOnTermination: false, snapshots every 4 hours via DLM (7-day retention) |
 | Number of instances | 1 |
 | Auto Scaling needed? | No |
@@ -39,11 +39,11 @@ Provision a lightweight EC2 instance to run `openclaw` as a background worker.
 |----------|--------|
 | VPC | Dedicated VPC (10.0.0.0/16), 2 AZs, public subnets only, no NAT Gateway |
 | Public internet access | Outbound only (for npm install, openclaw operations) |
-| Inbound ports | None |
+| Inbound ports | None by default (when `enableWebhook=true`: ALB `80/tcp`, worker `3334/tcp` from ALB SG, worker `8080/tcp` from Lambda SG) |
 | SSH access | Yes, via SSM Session Manager (no key pair, no port 22) |
 | Custom domain | No |
 | TLS/SSL certificate | No |
-| Load balancer | No |
+| Load balancer | Optional — public ALB only when `enableWebhook=true` |
 
 ## Deployment
 
