@@ -22,7 +22,7 @@ CDK stack for deploying the OpenClaw worker to EC2.
 ### Always created
 
 - VPC (`10.0.0.0/16`) with 2 public subnets across AZs and no NAT gateway
-- EC2 worker (`t4g.large`, Ubuntu 24.04 arm64) with `20 GB gp3` root volume
+- EC2 worker (`t4g.medium`, Ubuntu 24.04 arm64) with `20 GB gp3` root volume + `4 GB` swapfile
 - Worker security group (egress-only baseline)
 - EC2 IAM role with `AmazonSSMManagedInstanceCore`
 - Persistent data EBS volume (`4 GB gp3`, encrypted, retained) attached to the worker at `/dev/xvdf`
@@ -63,17 +63,17 @@ Disable again with `-c enableWebhook=false` (or by omitting the flag).
 
 ## Cost Estimate (us-east-1, on-demand)
 
-Assumptions: 1x `t4g.large` Linux instance, one public IPv4 address, gp3 root/data volumes, and DLM snapshots every 4 hours with 7-day retention.
+Assumptions: 1x `t4g.medium` Linux instance, one public IPv4 address, gp3 root/data volumes, and DLM snapshots every 4 hours with 7-day retention.
 
 Baseline (core stack):
 
-- EC2 (`t4g.large`): ~$49.06/mo
+- EC2 (`t4g.medium`): ~$24.53/mo
 - Public IPv4 address: ~$3.65/mo
 - EBS root (`20 GB gp3`): ~$1.60/mo
 - EBS data (`4 GB gp3`): ~$0.32/mo
 - EBS snapshots (DLM, every 4h, 7-day retention): ~$0.05/mo (incremental, ~1 GB stored)
 - Data transfer: minimal (workload-dependent)
-- **Baseline total: ~$55/mo**
+- **Baseline total: ~$30/mo**
 
 Additional when webhook resources are enabled (`enableWebhook=true`):
 
@@ -88,7 +88,7 @@ Optional custom-domain additions:
 - Route53 alias record queries: minimal for low traffic
 - Hosted zone: $0 if reusing an existing zone; ~$0.50/mo if creating a new zone
 
-- **Typical total with webhook enabled: ~$73–$78+/mo**
+- **Typical total with webhook enabled: ~$48–$53+/mo**
 
 Actual costs vary with region, usage, and snapshot churn.
 

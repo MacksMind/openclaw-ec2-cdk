@@ -25,9 +25,9 @@ Provision a lightweight EC2 instance to run `openclaw` as a background worker.
 
 | Question | Answer |
 |----------|--------|
-| Instance type | t4g.large (ARM/Graviton) |
+| Instance type | t4g.medium (ARM/Graviton) |
 | AMI / OS | Ubuntu 24.04 LTS (arm64) |
-| Root volume size (GB) | Default (8 GB) |
+| Root volume size (GB) | 20 GB gp3 + 4 GB swapfile on root volume |
 | Additional EBS volumes? | Yes — 4 GB gp3 mounted at /home/ubuntu (persists across instance recreation) |
 | EBS data volume protection | RemovalPolicy.RETAIN, deleteOnTermination: false, snapshots every 4 hours via DLM (7-day retention) |
 | Number of instances | 1 |
@@ -49,7 +49,7 @@ Provision a lightweight EC2 instance to run `openclaw` as a background worker.
 
 | Question | Answer |
 |----------|--------|
-| Instance provisioning | User data script installs Node 24, seeds persistent EBS volume, then mounts it at /home/ubuntu |
+| Instance provisioning | User data script installs Node 24, provisions 4 GB swap on root volume, seeds persistent EBS volume, then mounts it at /home/ubuntu |
 | App installation | Manual — operator SSMs in and runs `sudo npm install -g openclaw@latest` |
 | App configuration | Manual — operator configures openclaw after install |
 | Updates | Manual — `sudo npm install -g openclaw@latest` again |
@@ -79,4 +79,3 @@ Cost estimate is maintained in [README.md](../README.md) to keep a single source
 | Output | Description |
 |--------|-------------|
 | InstanceId | EC2 instance ID (used for SSM commands) |
-

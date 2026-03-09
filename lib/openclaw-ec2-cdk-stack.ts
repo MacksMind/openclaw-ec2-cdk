@@ -77,6 +77,15 @@ export class OpenclawCdkStack extends cdk.Stack {
       'curl -fsSL https://deb.nodesource.com/setup_24.x | bash -',
       'apt-get install -y nodejs',
 
+      // Provision a 4 GiB swapfile on the root volume (idempotent)
+      'if ! swapon --show | grep -q "^/swapfile"; then',
+      '  [ -f /swapfile ] || (fallocate -l 4G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=4096)',
+      '  chmod 600 /swapfile',
+      '  mkswap /swapfile',
+      '  swapon /swapfile',
+      'fi',
+      'grep -q "^/swapfile " /etc/fstab || echo "/swapfile none swap sw 0 0" >> /etc/fstab',
+
       // Find the EBS data volume (Nitro instances use NVMe — /dev/xvdf maps to /dev/nvme*n1)
       'DATA_DEV=""',
       'for i in $(seq 1 30); do',
@@ -117,7 +126,7 @@ export class OpenclawCdkStack extends cdk.Stack {
     const instance = new ec2.Instance(this, 'Worker', {
       vpc,
       vpcSubnets: { subnets: [workerSubnet] },
-      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.LARGE),
+      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.MEDIUM),
       machineImage: ec2.MachineImage.lookup({
         name: 'ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-arm64-server-*',
         owners: ['099720109477'], // Canonical

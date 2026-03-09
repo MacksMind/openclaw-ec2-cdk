@@ -250,6 +250,20 @@ test('Node.js is still installed during initialization', () => {
   });
 });
 
+test('Worker instance type is t4g.medium', () => {
+  template.hasResourceProperties('AWS::EC2::Instance', {
+    InstanceType: 't4g.medium',
+  });
+});
+
+test('Swapfile is configured on root volume', () => {
+  template.hasResourceProperties('AWS::EC2::Instance', {
+    UserData: {
+      'Fn::Base64': Match.stringLikeRegexp('/swapfile'),
+    },
+  });
+});
+
 test('Persistent home volume size is 4 GiB', () => {
   template.hasResourceProperties('AWS::EC2::Volume', {
     Size: 4,
